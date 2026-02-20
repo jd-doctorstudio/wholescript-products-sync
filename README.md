@@ -47,7 +47,7 @@ This script does all of that automatically, every night, in about 6 minutes.
 | `RetailPrice` | `regular_price` | `wp_posts` (standard WooCommerce) | The price the customer sees and pays |
 | `Quantity` | `stock_quantity` | `wp_posts` (standard WooCommerce) | How many units are available to sell |
 | `WholesalePrice` | `_op_cost_price` | `wp_postmeta` (meta key) | Our cost — what we pay the supplier |
-| ↳ *(same value)* | `purchase_price` | `wp_atum_product_data` (ATUM table) | Same cost, written to ATUM's own table |
+| | `purchase_price` | `wp_atum_product_data` (ATUM table) | Same cost, written to ATUM's own table |
 
 > **Why two cost fields?** `_op_cost_price` is a standard WooCommerce meta key stored in `wp_postmeta`. But we also use the **ATUM Inventory Management** plugin, which stores its own `purchase_price` in a separate table called `wp_atum_product_data`. Both need the same value so that ATUM reports and WooCommerce reports both show the correct cost. The sync writes to both in one API call.
 

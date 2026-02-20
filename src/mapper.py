@@ -52,7 +52,6 @@ def compute_updates(
     missing_in_woo = []
 
     cost_meta_key = Config.WOO_COST_META_KEY
-    atum_meta_key = Config.ATUM_PURCHASE_PRICE_META_KEY
 
     matched_via_lookup = 0
     matched_via_direct = 0
@@ -104,9 +103,9 @@ def compute_updates(
             "regular_price": ws_retail,
             "manage_stock": True,
             "stock_quantity": ws_qty,
+            "purchase_price": float(ws_cost),
             "meta_data": [
                 {"key": cost_meta_key, "value": ws_cost},
-                {"key": atum_meta_key, "value": ws_cost},
             ],
         }
 

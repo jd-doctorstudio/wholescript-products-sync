@@ -28,7 +28,6 @@ class Config:
 
     # Meta keys
     WOO_COST_META_KEY = os.getenv("WOO_COST_META_KEY", "_op_cost_price")
-    ATUM_PURCHASE_PRICE_META_KEY = os.getenv("ATUM_PURCHASE_PRICE_META_KEY", "_atum_purchase_price")
 
     # MySQL lookup DB (remote VM via SSH tunnel)
     MYSQL_HOST = os.getenv("MYSQL_HOST", "127.0.0.1")

@@ -18,7 +18,6 @@ class WooClient:
         self.session.auth = (Config.WOO_CONSUMER_KEY, Config.WOO_CONSUMER_SECRET)
         self.base_url = Config.woo_base_url()
         self.cost_meta_key = Config.WOO_COST_META_KEY
-        self.atum_meta_key = Config.ATUM_PURCHASE_PRICE_META_KEY
 
     def _request(self, method: str, path: str, **kwargs) -> requests.Response:
         url = f"{self.base_url}{path}"

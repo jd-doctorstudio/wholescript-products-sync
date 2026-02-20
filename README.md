@@ -542,7 +542,7 @@ crontab -e
 tail -50 /var/log/wholescripts_sync.log
 
 # Or check the database (more reliable)
-PGPASSWORD='D6y9b#H@sW!mR9Q' psql -U pos_produser -h 127.0.0.1 -d pos_prod \
+PGPASSWORD='(your database password)' psql -U pos_produser -h 127.0.0.1 -d pos_prod \
   -c "SELECT run_id, started_at, finished_at, matched, updated, failed, notes
       FROM wholescripts_woo_sync_runs ORDER BY started_at DESC LIMIT 5;"
 ```
@@ -640,7 +640,7 @@ WHERE run_id = '<paste-run-id-here>'
 ### Quick One-Liner (Connect and Query)
 
 ```bash
-PGPASSWORD='D6y9b#H@sW!mR9Q' psql -U pos_produser -h 127.0.0.1 -d pos_prod \
+PGPASSWORD='(your database password)' psql -U pos_produser -h 127.0.0.1 -d pos_prod \
   -c "SELECT * FROM wholescripts_woo_sync_runs ORDER BY started_at DESC LIMIT 5;"
 ```
 

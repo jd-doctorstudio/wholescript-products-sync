@@ -42,11 +42,14 @@ This script does all of that automatically, every night, in about 6 minutes.
 
 **What exactly gets updated:**
 
-| Wholescripts Field | WooCommerce Field | What It Means |
-|---|---|---|
-| `RetailPrice` | `regular_price` | The price the customer sees and pays |
-| `Quantity` | `stock_quantity` | How many units are available to sell |
-| `WholesalePrice` | `_op_cost_price` (meta) | Our cost — what we pay the supplier |
+| Wholescripts Field | WooCommerce Field | Where It Lives | What It Means |
+|---|---|---|---|
+| `RetailPrice` | `regular_price` | `wp_posts` (standard WooCommerce) | The price the customer sees and pays |
+| `Quantity` | `stock_quantity` | `wp_posts` (standard WooCommerce) | How many units are available to sell |
+| `WholesalePrice` | `_op_cost_price` | `wp_postmeta` (meta key) | Our cost — what we pay the supplier |
+| `WholesalePrice` | `purchase_price` | `wp_atum_product_data` (ATUM table) | Same cost, but stored in ATUM's own table |
+
+> **Why two cost fields?** `_op_cost_price` is a standard WooCommerce meta key stored in `wp_postmeta`. But we also use the **ATUM Inventory Management** plugin, which stores its own `purchase_price` in a separate table called `wp_atum_product_data`. Both need the same value so that ATUM reports and WooCommerce reports both show the correct cost. The sync writes to both in one API call.
 
 ---
 
@@ -148,11 +151,22 @@ The payload looks like:
   "regular_price": "44.99",
   "manage_stock": true,
   "stock_quantity": 2600,
+  "purchase_price": 22.99,
   "meta_data": [
     { "key": "_op_cost_price", "value": "22.99" }
   ]
 }
 ```
+
+**About the two cost fields:**
+- `_op_cost_price` → stored in `wp_postmeta` (standard WooCommerce meta)
+- `purchase_price` → stored in `wp_atum_product_data` (ATUM plugin's own table)
+
+ATUM does **not** read from `wp_postmeta` for purchase price — it has its own table:
+```sql
+SELECT purchase_price FROM wp_atum_product_data WHERE product_id = 4586;
+```
+`purchase_price` is a **top-level field** in the WooCommerce REST API (added by ATUM's API extension), not a meta key. That's why it sits outside `meta_data` in the payload.
 
 If WooCommerce returns an error (like 429 rate limit or 500 server error), the script **retries** up to 3 times with increasing wait times (1 second, then 2 seconds, then 4 seconds).
 
@@ -722,7 +736,9 @@ All credentials and configuration are stored in `.env` (git-ignored). Use `.env.
 | `WOO_CONSUMER_KEY` | OAuth consumer key | `ck_...` |
 | `WOO_CONSUMER_SECRET` | OAuth consumer secret | `cs_...` |
 | `WOOCOMMERCE_API_VERSION` | API version | `wc/v3` |
-| `WOO_COST_META_KEY` | Meta key for cost price | `_op_cost_price` |
+| `WOO_COST_META_KEY` | Meta key for cost price in `wp_postmeta` | `_op_cost_price` |
+
+> **Note:** ATUM `purchase_price` is sent as a top-level API field (not a meta key) and writes to `wp_atum_product_data.purchase_price`. No env var needed — the field name is part of ATUM's REST API.
 
 ### SSH Tunnel + MySQL (SKU Lookup Table)
 

@@ -1,0 +1,8 @@
+.env
+__pycache__/
+*.pyc
+*.pid
+venv/
+.venv/
+id_servicemenuserver_new
+wholescript_supplier_sku_202602201924

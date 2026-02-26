@@ -8,6 +8,7 @@ import os
 import sys
 import json
 import logging
+import shutil
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -19,7 +20,7 @@ from src.lookup import fetch_sku_lookup
 from src.woo_db import fetch_product_meta_from_db
 
 
-# ── Pretty helpers ──────────────────────────────────────────────────
+# ── Colors & ANSI ──────────────────────────────────────────────────
 
 CYAN = "\033[96m"
 GREEN = "\033[92m"
@@ -28,16 +29,83 @@ RED = "\033[91m"
 BOLD = "\033[1m"
 DIM = "\033[2m"
 RESET = "\033[0m"
+BLUE = "\033[94m"
+MAGENTA = "\033[95m"
+WHITE = "\033[97m"
+BG_DARK = "\033[48;5;236m"
+
+TOTAL_STEPS = 6
+_context_line = ""  # persistent context shown in header
 
 
-def banner(msg):
-    print(f"\n{BOLD}{CYAN}{'─' * 60}{RESET}")
-    print(f"{BOLD}{CYAN}  {msg}{RESET}")
-    print(f"{BOLD}{CYAN}{'─' * 60}{RESET}")
+def _term_width():
+    return shutil.get_terminal_size((80, 24)).columns
+
+
+def clear():
+    os.system("clear" if os.name != "nt" else "cls")
+
+
+# ── ASCII Art Banner ───────────────────────────────────────────────
+
+LOGO = f"""
+{BLUE}██╗    ██╗{CYAN}███████╗{RESET}    {MAGENTA}███████╗{CYAN}██╗   ██╗{BLUE}███╗   ██╗{MAGENTA} ██████╗{RESET}
+{BLUE}██║    ██║{CYAN}██╔════╝{RESET}    {MAGENTA}██╔════╝{CYAN}╚██╗ ██╔╝{BLUE}████╗  ██║{MAGENTA}██╔════╝{RESET}
+{BLUE}██║ █╗ ██║{CYAN}███████╗{RESET}    {MAGENTA}███████╗{CYAN} ╚████╔╝ {BLUE}██╔██╗ ██║{MAGENTA}██║     {RESET}
+{BLUE}██║███╗██║{CYAN}╚════██║{RESET}    {MAGENTA}╚════██║{CYAN}  ╚██╔╝  {BLUE}██║╚██╗██║{MAGENTA}██║     {RESET}
+{BLUE}╚███╔███╔╝{CYAN}███████║{RESET}    {MAGENTA}███████║{CYAN}   ██║   {BLUE}██║ ╚████║{MAGENTA}╚██████╗{RESET}
+{BLUE} ╚══╝╚══╝ {CYAN}╚══════╝{RESET}    {MAGENTA}╚══════╝{CYAN}   ╚═╝   {BLUE}╚═╝  ╚═══╝{MAGENTA} ╚═════╝{RESET}
+"""
+
+
+def show_banner():
+    clear()
+    print(LOGO)
+    w = _term_width()
+    print(f"{DIM}{'─' * w}{RESET}")
+    print(f"  {BOLD}Wholescripts → WooCommerce{RESET}  {DIM}·  Single Product Live Test{RESET}")
+    print()
+    print(f"  {DIM}Tips:{RESET}")
+    print(f"  {DIM}1.{RESET} Choose simple or variable product type")
+    print(f"  {DIM}2.{RESET} Search & select a WooCommerce product")
+    print(f"  {DIM}3.{RESET} Compare values & push updates live")
+    print()
+    print(f"{DIM}{'─' * w}{RESET}")
+    print()
+
+
+# ── Step header ────────────────────────────────────────────────────
+
+def _step_bar(current):
+    """Render a compact step progress bar."""
+    w = _term_width()
+    dots = ""
+    for i in range(1, TOTAL_STEPS + 1):
+        if i < current:
+            dots += f" {GREEN}●{RESET}"
+        elif i == current:
+            dots += f" {CYAN}◉{RESET}"
+        else:
+            dots += f" {DIM}○{RESET}"
+    return f"  {DIM}Step {current}/{TOTAL_STEPS}{RESET} {dots}"
 
 
 def step(n, msg):
-    print(f"\n{BOLD}{GREEN}[Step {n}]{RESET} {msg}")
+    clear()
+    w = _term_width()
+    print(f"{DIM}{'─' * w}{RESET}")
+    print(_step_bar(n))
+    if _context_line:
+        print(f"  {DIM}{_context_line}{RESET}")
+    print(f"{DIM}{'─' * w}{RESET}")
+    print(f"\n  {BOLD}{CYAN}{msg}{RESET}\n")
+
+
+def banner(msg):
+    w = _term_width()
+    print(f"\n{BOLD}{CYAN}{'─' * w}{RESET}")
+    print(f"  {BOLD}{CYAN}{msg}{RESET}")
+    print(f"{BOLD}{CYAN}{'─' * w}{RESET}")
 
 
 def info(msg):
@@ -70,7 +138,10 @@ def flow_arrow(left, right, label=""):
 # ── Main ────────────────────────────────────────────────────────────
 
 def main():
-    banner("Wholescripts → WooCommerce  ·  Single Product Live Test")
+    global _context_line
+
+    show_banner()
+    input(f"  {DIM}Press Enter to start...{RESET}")
 
     # ── Step 1: Product type ────────────────────────────────────────
     step(1, "What type of product are you testing?")
@@ -79,7 +150,7 @@ def main():
     choice = ask("Enter 1 or 2", "1")
     is_variable = choice == "2"
     product_type = "variable" if is_variable else "simple"
-    info(f"Product type: {BOLD}{product_type}{RESET}")
+    _context_line = f"Type: {product_type}"
 
     # ── Step 2: Search WooCommerce ──────────────────────────────────
     step(2, "Search for the product in WooCommerce")
@@ -128,6 +199,7 @@ def main():
     target_name = product["name"]
     target_sku = product.get("sku") or ""
     parent_id = None  # only set for variations
+    _context_line = f"{product_type}  ·  {target_name} (ID={target_id})"
 
     # ── Step 3b: If variable, pick a variation ──────────────────────
     if is_variable:
@@ -165,6 +237,7 @@ def main():
         target_id = var_id
         target_sku = variation.get("sku") or ""
         target_name = f"{product['name']} → variation {var_id}"
+        _context_line = f"{product_type}  ·  {target_name}"
 
     # ── Background: fetch WooCommerce DB values, ATUM inventories, & Wholescripts ──
     # Suppress ALL log noise during background fetches

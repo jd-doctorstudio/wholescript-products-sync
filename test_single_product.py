@@ -167,8 +167,10 @@ def main():
         target_name = f"{product['name']} → variation {var_id}"
 
     # ── Background: fetch WooCommerce DB values, ATUM inventories, & Wholescripts ──
-    # Suppress log noise during background fetches
-    logging.getLogger("wholescripts_sync").setLevel(logging.WARNING)
+    # Suppress ALL log noise during background fetches
+    for _lg_name in ("wholescripts_sync", "wholescripts_sync.woo_db",
+                      "wholescripts_sync.ws_client", "wholescripts_sync.woo_client"):
+        logging.getLogger(_lg_name).setLevel(logging.CRITICAL)
 
     db_meta = fetch_product_meta_from_db(target_id)
     if db_meta:
@@ -216,7 +218,9 @@ def main():
         ws_match = None
 
     # Restore logging
-    logging.getLogger("wholescripts_sync").setLevel(logging.INFO)
+    for _lg_name in ("wholescripts_sync", "wholescripts_sync.woo_db",
+                      "wholescripts_sync.ws_client", "wholescripts_sync.woo_client"):
+        logging.getLogger(_lg_name).setLevel(logging.INFO)
 
     # ── Step 4: Compare WooCommerce vs Wholescripts ───────────────
     step(4, "Looking up product in Wholescripts...")

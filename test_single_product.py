@@ -201,6 +201,22 @@ def main():
     # ── Step 5: Fetch Wholescripts data & choose values ─────────────
     step(5, "Looking up product in Wholescripts...")
 
+    # Re-fetch fresh WooCommerce data to avoid stale cache
+    info("Re-fetching fresh WooCommerce data...")
+    if is_variable and parent_id:
+        fresh_resp = woo._request("GET", f"/products/{parent_id}/variations/{target_id}")
+    else:
+        fresh_resp = woo._request("GET", f"/products/{target_id}")
+    if fresh_resp.status_code == 200:
+        fresh = fresh_resp.json()
+        cur_price = fresh.get("regular_price") or "0.00"
+        cur_stock = fresh.get("stock_quantity") or 0
+        cur_cost = woo._extract_meta_value(fresh.get("meta_data", []), Config.WOO_COST_META_KEY) or "0.00"
+        cur_purchase = fresh.get("purchase_price") or "0.00"
+        success("Refreshed WooCommerce values")
+    else:
+        warn(f"Could not refresh WooCommerce data (HTTP {fresh_resp.status_code}), using cached values")
+
     ws_match = None
     try:
         ws_client = WholescriptsClient()
@@ -230,11 +246,18 @@ def main():
 
         success(f"Found in Wholescripts: {BOLD}{ws_name}{RESET}")
         info(f"Matched SKU: {matched_sku}")
-        print(f"\n    {'Field':<20} {'WooCommerce':<15} {'Wholescripts'}")
-        print(f"    {'─' * 20} {'─' * 15} {'─' * 15}")
-        print(f"    {'regular_price':<20} {cur_price:<15} {ws_price}")
-        print(f"    {'cost_price':<20} {cur_cost:<15} {ws_cost}")
-        print(f"    {'stock_quantity':<20} {str(int(cur_stock or 0)):<15} {ws_stock}")
+
+        # Diff markers for the comparison table
+        def diff_mark(woo_val, ws_val):
+            if str(woo_val) != str(ws_val):
+                return f" {YELLOW}← differs{RESET}"
+            return f" {DIM}(same){RESET}"
+
+        print(f"\n    {'Field':<20} {'WooCommerce':<15} {'Wholescripts':<15} {'Status'}")
+        print(f"    {'─' * 20} {'─' * 15} {'─' * 15} {'─' * 12}")
+        print(f"    {'regular_price':<20} {_fmt_price(cur_price):<15} {ws_price:<15}{diff_mark(_fmt_price(cur_price), ws_price)}")
+        print(f"    {'cost_price':<20} {_fmt_price(cur_cost):<15} {ws_cost:<15}{diff_mark(_fmt_price(cur_cost), ws_cost)}")
+        print(f"    {'stock_quantity':<20} {str(int(cur_stock or 0)):<15} {str(ws_stock):<15}{diff_mark(int(cur_stock or 0), ws_stock)}")
 
         print(f"\n    {BOLD}Choose which values to use:{RESET}")
         print(f"    {BOLD}1{RESET} = Use Wholescripts values (live sync simulation)")

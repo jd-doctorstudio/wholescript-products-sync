@@ -204,3 +204,61 @@ class WooClient:
         except Exception:
             body = {"raw": resp.text[:500]}
         return resp.status_code, body
+
+    # ── ATUM Multi-Inventory ──────────────────────────────────────────
+
+    # Priority order for selecting which inventory to update
+    _INVENTORY_PRIORITY = ["Dropship", "Jupiter Inventory", "Boca Inventory", "Main Inventory"]
+
+    def fetch_inventories(self, product_id: int) -> List[dict]:
+        """GET all ATUM inventories for a product (or variation).
+
+        Works with both simple products and variations — use the
+        product/variation ID directly.
+        """
+        resp = self._request("GET", f"/products/{product_id}/inventories")
+        if resp.status_code == 200:
+            data = resp.json()
+            return data if isinstance(data, list) else []
+        logger.debug("No inventories for product %d (HTTP %d)", product_id, resp.status_code)
+        return []
+
+    def select_inventory(self, inventories: List[dict]) -> Optional[dict]:
+        """Pick the best inventory to update based on priority.
+
+        Priority: Dropship > Jupiter Inventory > Boca Inventory > Main Inventory > any.
+        """
+        if not inventories:
+            return None
+
+        by_name = {inv.get("name", ""): inv for inv in inventories}
+
+        for name in self._INVENTORY_PRIORITY:
+            if name in by_name:
+                return by_name[name]
+
+        # Fallback: first available inventory
+        return inventories[0]
+
+    def update_inventory(
+        self, product_id: int, inventory_id: int, stock_quantity: int, purchase_price: Optional[float] = None
+    ) -> Tuple[int, dict]:
+        """PUT update an ATUM inventory — enable stock management and set quantity.
+
+        Endpoint: /products/<product_id>/inventories/<inventory_id>
+        """
+        meta: dict = {
+            "manage_stock": True,
+            "stock_quantity": stock_quantity,
+            "stock_status": "instock" if stock_quantity > 0 else "outofstock",
+        }
+        if purchase_price is not None:
+            meta["purchase_price"] = purchase_price
+
+        payload = {"meta_data": meta}
+        resp = self._request("PUT", f"/products/{product_id}/inventories/{inventory_id}", json=payload)
+        try:
+            body = resp.json()
+        except Exception:
+            body = {"raw": resp.text[:500]}
+        return resp.status_code, body

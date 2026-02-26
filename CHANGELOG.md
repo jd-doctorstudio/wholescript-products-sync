@@ -4,6 +4,29 @@ All notable changes to the Wholescripts → WooCommerce sync project.
 
 ---
 
+## [1.2.0] – 2026-02-26
+
+### Added
+- **ATUM Multi-Inventory support** — After updating a product or variation, the script now also updates the correct ATUM inventory location with `manage_stock: true` and the Wholescripts `stock_quantity`.
+
+### Inventory selection priority
+1. **Dropship** — preferred if it exists
+2. **Jupiter Inventory** or **Boca Inventory** — fallback if no Dropship
+3. **Main Inventory** — fallback if none of the above exist
+4. If no ATUM inventories exist at all, the main WooCommerce `stock_quantity` (already updated in the product/variation payload) serves as the fallback.
+
+### How it works
+- Works for both **simple products** and **variations** — uses the same `GET /products/{id}/inventories` endpoint (variation IDs work as product IDs).
+- For the selected inventory, sends `PUT /products/{id}/inventories/{inv_id}` with `meta_data: { manage_stock: true, stock_quantity: N, stock_status: instock/outofstock, purchase_price: X }`.
+- Dry-run mode logs which inventory *would* be updated without making changes.
+
+### Files Modified
+- `src/woo_client.py` — added `fetch_inventories()`, `select_inventory()`, `update_inventory()` methods.
+- `src/sync.py` — calls ATUM inventory update after each successful product/variation update; added dry-run inventory logging.
+- `.env` / `.env.example` — removed stale `ATUM_PURCHASE_PRICE_META_KEY`.
+
+---
+
 ## [1.1.0] – 2026-02-20
 
 ### Fixed

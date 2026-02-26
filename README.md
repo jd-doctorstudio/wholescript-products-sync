@@ -17,9 +17,10 @@
 11. [Database Logging (How We Track Everything)](#database-logging-how-we-track-everything)
 12. [How to Check Logs](#how-to-check-logs)
 13. [Diagnostic Tools](#diagnostic-tools)
-14. [Environment Variables](#environment-variables)
-15. [Troubleshooting](#troubleshooting)
-16. [Numbers at a Glance](#numbers-at-a-glance)
+14. [Switching Environments](#switching-environments)
+15. [Environment Variables](#environment-variables)
+16. [Troubleshooting](#troubleshooting)
+17. [Numbers at a Glance](#numbers-at-a-glance)
 
 ---
 
@@ -251,10 +252,13 @@ The code tracks which product IDs are variations and stores their parent ID so i
 /var/www/wholescripts-sync/
 │
 ├── updatescript.py                  # The entry point — this is what cron calls
+├── test_single_product.py           # Interactive single-product sync/test tool
+├── analyze_kinsta_wholescripts.py   # Cross-catalog analysis (name-match WooCommerce ↔ Wholescripts)
 ├── requirements.txt                 # Python packages this project needs
 ├── .env                             # Credentials and config (git-ignored, never commit this)
 ├── .env.example                     # Template showing what goes in .env
 ├── WORKFLOW.md                      # Quick-reference workflow documentation
+├── CHANGELOG.md                     # Change log for notable updates
 ├── README.md                        # This file
 │
 ├── src/                             # All the actual code lives here
@@ -264,6 +268,7 @@ The code tracks which product IDs are variations and stores their parent ID so i
 │   ├── db.py                        # Postgres database: creates tables, logs data
 │   ├── wholescripts_client.py       # Talks to the Wholescripts API
 │   ├── woo_client.py                # Talks to the WooCommerce REST API
+│   ├── woo_db.py                    # Direct WooCommerce MariaDB queries via SSH tunnel
 │   ├── lookup.py                    # SSH tunnel + MySQL lookup table
 │   ├── mapper.py                    # SKU matching + change detection
 │   └── sync.py                      # The main orchestrator (ties everything together)
@@ -383,6 +388,49 @@ This is the conductor of the orchestra. It calls all the other modules in the ri
 
 **When to edit:** If you need to change the order of operations, add a new step to the sync process, or change how errors are handled at the top level.
 
+#### `src/woo_db.py` — Direct WooCommerce MariaDB Access
+
+Connects directly to the WooCommerce MariaDB database via SSH tunnel (`67.225.164.73`). Used by `test_single_product.py` to query raw database values (e.g. `wp_postmeta`, `wp_atum_product_data`) when verifying that API updates actually landed in the database.
+
+**When to edit:** If the WooCommerce server credentials change, the SSH tunnel setup changes, or you need to query additional database tables.
+
+#### `test_single_product.py` — Interactive Single-Product Sync Tool
+
+An interactive CLI tool for testing the sync on **one product at a time**. Uses the same core logic as the nightly sync (`WooClient`, `WholescriptsClient`) but adds a step-by-step UI with ASCII art, progress indicators, and user prompts. You can:
+
+1. Search for a product by name or SKU
+2. View its current WooCommerce values vs Wholescripts values
+3. Choose to apply Wholescripts values or enter manual values
+4. See ATUM inventory details and update them
+5. Verify changes by querying the database directly
+
+```bash
+/var/www/wholescripts-sync/venv/bin/python3 test_single_product.py
+```
+
+**When to edit:** If you add new fields to the sync or change the update payload structure.
+
+#### `analyze_kinsta_wholescripts.py` — Cross-Catalog Analysis
+
+Compares product catalogs between WooCommerce and Wholescripts using **product name matching** (not SKU, since SKUs differ in format between the two systems). Outputs a console summary showing:
+
+- How many products exist in each catalog
+- Name matches (same product in both systems)
+- Products only in WooCommerce or only in Wholescripts
+- Products with the same name but different SKUs (indicates outdated SKU data)
+
+The script auto-detects which environment you are pointing at based on the URLs in `.env`:
+- `testservices.wholescripts.com` → Wholescripts **Test**
+- `api.wholescripts.com` → Wholescripts **Production**
+- `dsstore.kinsta.cloud` → WooCommerce **Kinsta staging**
+- `store.doctorsstudio.com` → WooCommerce **Production**
+
+```bash
+/var/www/wholescripts-sync/venv/bin/python3 analyze_kinsta_wholescripts.py
+```
+
+**When to edit:** If you want to add additional comparison fields or change the matching logic.
+
 ---
 
 ## How the Files Connect
@@ -475,10 +523,10 @@ nano .env
 
 You should see output like:
 ```
-Fetched 1059 products from Wholescripts
+Fetched 1064 products from Wholescripts
 Loaded 321 SKU→product_id mappings from lookup table
-Fetched 1284 total Woo products
-Summary: ws=1059, woo=1284, matched=310, updated=302, skipped=8, missing=749, failed=0
+Fetched ~1284 total Woo products
+Summary: ws=1064, woo=1284, matched=310, updated=~300, skipped=~10, missing=~754, failed=0
 ```
 
 ---
@@ -504,12 +552,12 @@ This actually sends updates to WooCommerce. Products on the store will change.
 ### What the Output Means
 
 ```
-Summary: ws=1059, woo=1284, matched=310, updated=302, skipped=8, missing=749, failed=0
+Summary: ws=1064, woo=1284, matched=310, updated=~300, skipped=~10, missing=~754, failed=0
 ```
 
 | Field | Meaning |
 |---|---|
-| `ws=1059` | Wholescripts API returned 1,059 products |
+| `ws=1064` | Wholescripts API returned 1,064 products |
 | `woo=1284` | WooCommerce has 1,284 products total |
 | `matched=310` | 310 Wholescripts SKUs matched to WooCommerce products |
 | `updated=302` | 302 products had changes and were updated |
@@ -703,6 +751,59 @@ A raw export of the MySQL lookup table captured on Feb 20, 2026. Useful as a ref
 
 ---
 
+## Switching Environments
+
+The `.env` file is organized into **switchable blocks**. Each service (Wholescripts and WooCommerce) has two credential blocks — one for production and one for test/staging. Only **one block per service** should be uncommented at a time.
+
+### How to Switch
+
+Edit `.env` and comment/uncomment the appropriate blocks:
+
+```bash
+# ── Wholescripts API ─────────────────────────────────────
+# Uncomment ONE block at a time.
+
+# Wholescripts (test)
+#WHOLESCRIPTS_API_USERNAME=295849_API
+#WHOLESCRIPTS_API_PASSWORD=...
+#WHOLESCRIPT_API_URL=https://testservices.wholescripts.com/api
+
+# Wholescripts (production)
+WHOLESCRIPTS_API_USERNAME=295849_API
+WHOLESCRIPTS_API_PASSWORD=...
+WHOLESCRIPT_API_URL=https://api.wholescripts.com/api
+
+# ── WooCommerce REST API ─────────────────────────────────
+# Uncomment ONE block at a time.
+
+# WooCommerce (production)
+WOO_API_URL=https://store.doctorsstudio.com
+WOO_CONSUMER_KEY=ck_...
+WOO_CONSUMER_SECRET=cs_...
+WOOCOMMERCE_API_VERSION=wc/v3
+
+# WooCommerce (Kinsta staging)
+#WOO_API_URL=https://dsstore.kinsta.cloud
+#WOO_CONSUMER_KEY=ck_...
+#WOO_CONSUMER_SECRET=cs_...
+#WOOCOMMERCE_API_VERSION=wc/v3
+```
+
+### How the Scripts Know Which Environment Is Active
+
+The scripts detect the environment automatically from the URLs — no extra flags needed:
+
+| URL contains | Detected as |
+|---|---|
+| `testservices.wholescripts.com` | Wholescripts **Test** |
+| `api.wholescripts.com` | Wholescripts **Production** |
+| `dsstore.kinsta.cloud` | WooCommerce **Kinsta Staging** |
+| `store.doctorsstudio.com` | WooCommerce **Production** |
+
+This is used by `analyze_kinsta_wholescripts.py` and `test_single_product.py` to label output correctly. The nightly sync (`updatescript.py`) always runs against whatever is uncommented.
+
+---
+
 ## Environment Variables
 
 All credentials and configuration are stored in `.env` (git-ignored). Use `.env.example` as a template.
@@ -726,9 +827,10 @@ All credentials and configuration are stored in `.env` (git-ignored). Use `.env.
 | `WHOLESCRIPT_API_URL` | API base URL | `https://api.wholescripts.com/api` |
 
 > **Important:** The URL must end with `/api`. The script appends `/Orders/ProductList` to it.
-> Test environment uses `https://testservices.wholescripts.com/api` (comment/uncomment in `.env`).
 
-### WooCommerce API
+> **Switching environments:** The `.env` file has two commented blocks — one for **production** (`api.wholescripts.com`) and one for **test** (`testservices.wholescripts.com`). Uncomment whichever block you need and comment the other. The scripts auto-detect which environment is active based on the URL.
+
+### WooCommerce REST API
 
 | Variable | Purpose | Example |
 |---|---|---|
@@ -739,6 +841,24 @@ All credentials and configuration are stored in `.env` (git-ignored). Use `.env.
 | `WOO_COST_META_KEY` | Meta key for cost price in `wp_postmeta` | `_op_cost_price` |
 
 > **Note:** ATUM `purchase_price` is sent as a top-level API field (not a meta key) and writes to `wp_atum_product_data.purchase_price`. No env var needed — the field name is part of ATUM's REST API.
+
+> **Switching environments:** The `.env` file has two commented blocks — one for **production** (`store.doctorsstudio.com`) and one for **Kinsta staging** (`dsstore.kinsta.cloud`). Uncomment whichever block you need and comment the other. Each block has its own `WOO_API_URL`, `WOO_CONSUMER_KEY`, and `WOO_CONSUMER_SECRET`.
+
+### WooCommerce Database (Direct MariaDB Access)
+
+| Variable | Purpose | Example |
+|---|---|---|
+| `WOO_IP` | WooCommerce server IP | `67.225.164.73` |
+| `WOO_USER_NAME` | SSH username | `root` |
+| `WOO_PASSWORD` | SSH password | `(your password)` |
+| `WOO_IP_PORT` | SSH port | `22` |
+| `WOO_DB_NAME` | MariaDB database name | `dsstore2` |
+| `WOO_DB_USER` | MariaDB username | `apiserver` |
+| `WOO_DB_PASSWORD` | MariaDB password | `(your password)` |
+| `WOO_DB_HOST` | MariaDB host (on remote) | `localhost` |
+| `WOO_DB_PORT` | MariaDB port (on remote) | `3306` |
+
+> Used by `test_single_product.py` to verify updates by querying `wp_postmeta` and `wp_atum_product_data` directly.
 
 ### SSH Tunnel + MySQL (SKU Lookup Table)
 
@@ -807,14 +927,14 @@ Common causes: WooCommerce rate limiting (429), server errors (500), or products
 
 ## Numbers at a Glance
 
-*As of February 20, 2026:*
+*As of February 26, 2026:*
 
 | Metric | Value |
 |---|---|
-| Wholescripts products in their API | ~1,059 |
+| Wholescripts products in their API | ~1,064 |
 | Products in our WooCommerce store | ~1,284 |
 | Wholescripts products in our store | ~246 (parent-level) |
-| SKU mappings in lookup table | 323 (+ 81 parent rows) |
+| SKU mappings in lookup table | 321 (+ 81 parent rows) |
 | SKU-level matches per sync run | ~310 |
 | Typical updates per run | ~300 |
 | Script run time | ~6 minutes |

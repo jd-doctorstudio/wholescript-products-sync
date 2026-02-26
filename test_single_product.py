@@ -250,8 +250,8 @@ def main():
     if db_meta:
         cur_price = db_meta["regular_price"] or "0.00"
         cur_stock = int(float(db_meta["stock_quantity"] or 0))
-        cur_cost = db_meta["_op_cost_price"] or "0.00"
         cur_purchase = db_meta["purchase_price"] or "0.00"
+        cur_cost = cur_purchase if float(cur_purchase) > 0 else (db_meta["_op_cost_price"] or "0.00")
         cur_manage = db_meta["manage_stock"]  # "yes" or "no"
         cur_stock_status = db_meta["stock_status"]
         db_source = True

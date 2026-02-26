@@ -184,8 +184,7 @@ def main():
         pname = (p.get("name") or "")[:50]
         print(f"  {pid:<10} {psku:<25} {pname}")
 
-    # ── Step 3: Pick product ────────────────────────────────────────
-    step(3, "Select the product to test")
+    print()
     product_id = int(ask("Enter the Product ID from above"))
 
     # Fetch full product details
@@ -201,13 +200,14 @@ def main():
     parent_id = None  # only set for variations
     _context_line = f"{product_type}  ·  {target_name} (ID={target_id})"
 
-    # ── Step 3b: If variable, pick a variation ──────────────────────
+    # ── Step 3: If variable, pick a variation ───────────────────────
     if is_variable:
         var_ids = product.get("variations", [])
         if not var_ids:
             error("This product has no variations.")
             sys.exit(1)
 
+        step(3, f"Select a variation for {BOLD}{target_name}{RESET}")
         info(f"Fetching {len(var_ids)} variation(s)...")
         variations = []
         for vid in var_ids:
@@ -226,6 +226,7 @@ def main():
             attrs = ", ".join(f'{a["name"]}={a["option"]}' for a in v.get("attributes", []))
             print(f"  {vid:<10} {vsku:<25} {vprice:<10} {str(vstock):<8} {attrs}")
 
+        print()
         var_id = int(ask("Enter the Variation ID to test"))
         # Find the selected variation
         variation = next((v for v in variations if v["id"] == var_id), None)

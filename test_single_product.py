@@ -7,6 +7,7 @@ Usage:
 import os
 import sys
 import json
+import logging
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -165,9 +166,9 @@ def main():
         target_sku = variation.get("sku") or ""
         target_name = f"{product['name']} → variation {var_id}"
 
-    # ── Step 4: Show current WooCommerce values (direct from DB) ────
-    step(4, f"Current WooCommerce values for {BOLD}{target_name}{RESET}")
-    info("Reading directly from WooCommerce database via SSH tunnel...")
+    # ── Background: fetch WooCommerce DB values, ATUM inventories, & Wholescripts ──
+    # Suppress log noise during background fetches
+    logging.getLogger("wholescripts_sync").setLevel(logging.WARNING)
 
     db_meta = fetch_product_meta_from_db(target_id)
     if db_meta:
@@ -177,10 +178,8 @@ def main():
         cur_purchase = db_meta["purchase_price"] or "0.00"
         cur_manage = db_meta["manage_stock"]  # "yes" or "no"
         cur_stock_status = db_meta["stock_status"]
-        source_label = f"{GREEN}(from DB){RESET}"
-        success("Connected to WooCommerce DB — values are live")
+        db_source = True
     else:
-        warn("Could not read from DB — falling back to REST API")
         if is_variable and variation:
             cur_price = variation.get("regular_price") or "0.00"
             cur_stock = variation.get("stock_quantity") or 0
@@ -193,55 +192,37 @@ def main():
             cur_purchase = product.get("purchase_price") or "0.00"
         cur_manage = "unknown"
         cur_stock_status = "unknown"
-        source_label = f"{YELLOW}(from API — may be cached){RESET}"
+        db_source = False
 
-    manage_display = f"{GREEN}managed{RESET}" if cur_manage == "yes" else f"{RED}unmanaged{RESET}"
-
-    print(f"\n    {BOLD}Source:{RESET} {source_label}")
-    print(f"    {'Field':<20} {'Current Value'}")
-    print(f"    {'─' * 20} {'─' * 25}")
-    print(f"    {'regular_price':<20} {cur_price}")
-    print(f"    {'stock_quantity':<20} {cur_stock}")
-    print(f"    {'manage_stock':<20} {cur_manage} ({manage_display})")
-    print(f"    {'stock_status':<20} {cur_stock_status}")
-    print(f"    {'_op_cost_price':<20} {cur_cost}")
-    print(f"    {'purchase_price':<20} {cur_purchase}")
-
-    # Show ATUM inventories
     inventories = woo.fetch_inventories(target_id)
-    if inventories:
-        print(f"\n    {BOLD}ATUM Inventories:{RESET}")
-        for inv in inventories:
-            inv_meta = inv.get("meta_data", {})
-            print(f"    • {inv['name']} (id={inv['id']}) — manage_stock={inv_meta.get('manage_stock')}, qty={inv_meta.get('stock_quantity')}")
-        chosen_list = woo.select_inventories(inventories)
-        inv_names = [c.get("name") for c in chosen_list]
-        info(f"Will update inventory: {BOLD}{', '.join(inv_names)}{RESET}")
-    else:
-        info("No ATUM inventories — will update main WooCommerce stock only")
 
-    # ── Step 5: Fetch Wholescripts data & choose values ─────────────
-    step(5, "Looking up product in Wholescripts...")
-
+    # ── Background: fetch Wholescripts data ────────────────────────
     ws_match = None
     try:
         ws_client = WholescriptsClient()
         ws_products = ws_client.fetch_product_list()
         ws_by_sku = ws_client.build_sku_map(ws_products)
 
-        # Try matching: exact SKU first, then short-SKU
         if target_sku in ws_by_sku:
             ws_match = ws_by_sku[target_sku]
         else:
             short = ws_sku_to_short(target_sku) if target_sku else ""
-            # Try to find any WS sku whose short form matches
             for ws_sku, ws_data in ws_by_sku.items():
                 if ws_sku_to_short(ws_sku) == short and short:
                     ws_match = ws_data
                     ws_match["_matched_sku"] = ws_sku
                     break
     except Exception as exc:
-        warn(f"Could not fetch Wholescripts data: {exc}")
+        ws_match = None
+
+    # Restore logging
+    logging.getLogger("wholescripts_sync").setLevel(logging.INFO)
+
+    # ── Step 4: Compare WooCommerce vs Wholescripts ───────────────
+    step(4, "Looking up product in Wholescripts...")
+
+    manage_display = f"{GREEN}managed{RESET}" if cur_manage == "yes" else f"{RED}unmanaged{RESET}"
+    source_label = f"{GREEN}(from DB){RESET}" if db_source else f"{YELLOW}(from API — may be cached){RESET}"
 
     if ws_match:
         ws_price = _fmt_price(ws_match["retail_price"])
@@ -252,11 +233,11 @@ def main():
 
         success(f"Found in Wholescripts: {BOLD}{ws_name}{RESET}")
         info(f"Matched SKU: {matched_sku}")
+        info(f"WooCommerce data source: {source_label}")
 
-        # Diff markers for the comparison table
         def diff_mark(woo_val, ws_val):
             if str(woo_val) != str(ws_val):
-                return f" {YELLOW}← differs{RESET}"
+                return f" {YELLOW}<- differs{RESET}"
             return f" {DIM}(same){RESET}"
 
         print(f"\n    {'Field':<20} {'WooCommerce':<15} {'Wholescripts':<15} {'Status'}")
@@ -264,39 +245,91 @@ def main():
         print(f"    {'regular_price':<20} {_fmt_price(cur_price):<15} {ws_price:<15}{diff_mark(_fmt_price(cur_price), ws_price)}")
         print(f"    {'cost_price':<20} {_fmt_price(cur_cost):<15} {ws_cost:<15}{diff_mark(_fmt_price(cur_cost), ws_cost)}")
         print(f"    {'stock_quantity':<20} {str(int(cur_stock or 0)):<15} {str(ws_stock):<15}{diff_mark(int(cur_stock or 0), ws_stock)}")
+        print(f"    {'manage_stock':<20} {cur_manage} ({manage_display})")
 
-        print(f"\n    {BOLD}Choose which values to use:{RESET}")
-        print(f"    {BOLD}1{RESET} = Use Wholescripts values (live sync simulation)")
-        print(f"    {BOLD}2{RESET} = Enter values manually")
-        val_choice = ask("Enter 1 or 2", "1")
-
-        if val_choice == "1":
-            new_price = ws_price
-            new_cost = ws_cost
-            new_stock = ws_stock
-            info(f"Using Wholescripts values")
+        # Show ATUM inventories
+        if inventories:
+            print(f"\n    {BOLD}ATUM Inventories:{RESET}")
+            for inv in inventories:
+                inv_meta = inv.get("meta_data", {})
+                print(f"    • {inv['name']} (id={inv['id']}) — manage_stock={inv_meta.get('manage_stock')}, qty={inv_meta.get('stock_quantity')}")
+            chosen_list = woo.select_inventories(inventories)
+            inv_names = [c.get("name") for c in chosen_list]
+            info(f"Will update inventory: {BOLD}{', '.join(inv_names)}{RESET}")
         else:
-            info("Manual input selected.")
-            info("Press Enter to keep the current WooCommerce value unchanged.\n")
+            info("No ATUM inventories — will update main WooCommerce stock only")
+
+        # Choice loop with back option
+        while True:
+            print(f"\n    {BOLD}Choose which values to use:{RESET}")
+            print(f"    {BOLD}1{RESET} = Use Wholescripts values (live sync simulation)")
+            print(f"    {BOLD}2{RESET} = Enter values manually")
+            val_choice = ask("Enter 1 or 2", "1")
+
+            if val_choice == "1":
+                new_price = ws_price
+                new_cost = ws_cost
+                new_stock = ws_stock
+                info(f"Using Wholescripts values")
+                break
+            else:
+                info(f"Manual input selected. Type {BOLD}back{RESET} at any prompt to go back.")
+                info("Press Enter to keep the current WooCommerce value unchanged.\n")
+                new_price = ask("New regular_price", cur_price)
+                if new_price.lower() == "back":
+                    continue
+                new_cost = ask("New cost/purchase_price", cur_cost)
+                if new_cost.lower() == "back":
+                    continue
+                new_stock = ask("New stock_quantity", str(cur_stock))
+                if new_stock.lower() == "back":
+                    continue
+                new_price = _fmt_price(new_price)
+                new_cost = _fmt_price(new_cost)
+                new_stock = int(new_stock)
+                break
+    else:
+        warn(f"Product SKU '{target_sku}' not found in Wholescripts.")
+        info(f"WooCommerce data source: {source_label}")
+
+        print(f"\n    {'Field':<20} {'WooCommerce'}")
+        print(f"    {'─' * 20} {'─' * 15}")
+        print(f"    {'regular_price':<20} {_fmt_price(cur_price)}")
+        print(f"    {'cost_price':<20} {_fmt_price(cur_cost)}")
+        print(f"    {'stock_quantity':<20} {int(cur_stock or 0)}")
+        print(f"    {'manage_stock':<20} {cur_manage} ({manage_display})")
+
+        # Show ATUM inventories
+        if inventories:
+            print(f"\n    {BOLD}ATUM Inventories:{RESET}")
+            for inv in inventories:
+                inv_meta = inv.get("meta_data", {})
+                print(f"    • {inv['name']} (id={inv['id']}) — manage_stock={inv_meta.get('manage_stock')}, qty={inv_meta.get('stock_quantity')}")
+            chosen_list = woo.select_inventories(inventories)
+            inv_names = [c.get("name") for c in chosen_list]
+            info(f"Will update inventory: {BOLD}{', '.join(inv_names)}{RESET}")
+        else:
+            info("No ATUM inventories — will update main WooCommerce stock only")
+
+        info("Falling back to manual input.")
+        info("Press Enter to keep the current WooCommerce value unchanged.\n")
+        while True:
             new_price = ask("New regular_price", cur_price)
+            if new_price.lower() == "back":
+                continue
             new_cost = ask("New cost/purchase_price", cur_cost)
+            if new_cost.lower() == "back":
+                continue
             new_stock = ask("New stock_quantity", str(cur_stock))
+            if new_stock.lower() == "back":
+                continue
             new_price = _fmt_price(new_price)
             new_cost = _fmt_price(new_cost)
             new_stock = int(new_stock)
-    else:
-        warn(f"Product SKU '{target_sku}' not found in Wholescripts.")
-        info("Falling back to manual input.")
-        info("Press Enter to keep the current WooCommerce value unchanged.\n")
-        new_price = ask("New regular_price", cur_price)
-        new_cost = ask("New cost/purchase_price", cur_cost)
-        new_stock = ask("New stock_quantity", str(cur_stock))
-        new_price = _fmt_price(new_price)
-        new_cost = _fmt_price(new_cost)
-        new_stock = int(new_stock)
+            break
 
-    # ── Step 6: Confirm ─────────────────────────────────────────────
-    step(6, "Review changes before applying")
+    # ── Step 5: Confirm ─────────────────────────────────────────────
+    step(5, "Review changes before applying")
     print(f"\n    {BOLD}Product:{RESET}  {target_name} (ID={target_id}, SKU={target_sku})")
     print(f"    {BOLD}Type:{RESET}     {product_type}")
     print()
@@ -323,8 +356,8 @@ def main():
         info("Cancelled. No changes applied.")
         sys.exit(0)
 
-    # ── Step 7: Apply the update ────────────────────────────────────
-    step(7, "Applying update...")
+    # ── Step 6: Apply the update ────────────────────────────────────
+    step(6, "Applying update...")
 
     cost_meta_key = Config.WOO_COST_META_KEY
     payload = {

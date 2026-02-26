@@ -15,6 +15,7 @@ from src.woo_client import WooClient
 from src.wholescripts_client import WholescriptsClient
 from src.mapper import _fmt_price, ws_sku_to_short
 from src.lookup import fetch_sku_lookup
+from src.woo_db import fetch_product_meta_from_db
 
 
 # ── Pretty helpers ──────────────────────────────────────────────────
@@ -164,24 +165,45 @@ def main():
         target_sku = variation.get("sku") or ""
         target_name = f"{product['name']} → variation {var_id}"
 
-    # ── Step 4: Show current WooCommerce values ─────────────────────
+    # ── Step 4: Show current WooCommerce values (direct from DB) ────
     step(4, f"Current WooCommerce values for {BOLD}{target_name}{RESET}")
+    info("Reading directly from WooCommerce database via SSH tunnel...")
 
-    if is_variable and variation:
-        cur_price = variation.get("regular_price") or "0.00"
-        cur_stock = variation.get("stock_quantity") or 0
-        cur_cost = woo._extract_meta_value(variation.get("meta_data", []), Config.WOO_COST_META_KEY) or "0.00"
-        cur_purchase = variation.get("purchase_price") or "0.00"
+    db_meta = fetch_product_meta_from_db(target_id)
+    if db_meta:
+        cur_price = db_meta["regular_price"] or "0.00"
+        cur_stock = int(float(db_meta["stock_quantity"] or 0))
+        cur_cost = db_meta["_op_cost_price"] or "0.00"
+        cur_purchase = db_meta["purchase_price"] or "0.00"
+        cur_manage = db_meta["manage_stock"]  # "yes" or "no"
+        cur_stock_status = db_meta["stock_status"]
+        source_label = f"{GREEN}(from DB){RESET}"
+        success("Connected to WooCommerce DB — values are live")
     else:
-        cur_price = product.get("regular_price") or "0.00"
-        cur_stock = product.get("stock_quantity") or 0
-        cur_cost = woo._extract_meta_value(product.get("meta_data", []), Config.WOO_COST_META_KEY) or "0.00"
-        cur_purchase = product.get("purchase_price") or "0.00"
+        warn("Could not read from DB — falling back to REST API")
+        if is_variable and variation:
+            cur_price = variation.get("regular_price") or "0.00"
+            cur_stock = variation.get("stock_quantity") or 0
+            cur_cost = woo._extract_meta_value(variation.get("meta_data", []), Config.WOO_COST_META_KEY) or "0.00"
+            cur_purchase = variation.get("purchase_price") or "0.00"
+        else:
+            cur_price = product.get("regular_price") or "0.00"
+            cur_stock = product.get("stock_quantity") or 0
+            cur_cost = woo._extract_meta_value(product.get("meta_data", []), Config.WOO_COST_META_KEY) or "0.00"
+            cur_purchase = product.get("purchase_price") or "0.00"
+        cur_manage = "unknown"
+        cur_stock_status = "unknown"
+        source_label = f"{YELLOW}(from API — may be cached){RESET}"
 
+    manage_display = f"{GREEN}managed{RESET}" if cur_manage == "yes" else f"{RED}unmanaged{RESET}"
+
+    print(f"\n    {BOLD}Source:{RESET} {source_label}")
     print(f"    {'Field':<20} {'Current Value'}")
-    print(f"    {'─' * 20} {'─' * 20}")
+    print(f"    {'─' * 20} {'─' * 25}")
     print(f"    {'regular_price':<20} {cur_price}")
     print(f"    {'stock_quantity':<20} {cur_stock}")
+    print(f"    {'manage_stock':<20} {cur_manage} ({manage_display})")
+    print(f"    {'stock_status':<20} {cur_stock_status}")
     print(f"    {'_op_cost_price':<20} {cur_cost}")
     print(f"    {'purchase_price':<20} {cur_purchase}")
 
@@ -200,22 +222,6 @@ def main():
 
     # ── Step 5: Fetch Wholescripts data & choose values ─────────────
     step(5, "Looking up product in Wholescripts...")
-
-    # Re-fetch fresh WooCommerce data to avoid stale cache
-    info("Re-fetching fresh WooCommerce data...")
-    if is_variable and parent_id:
-        fresh_resp = woo._request("GET", f"/products/{parent_id}/variations/{target_id}")
-    else:
-        fresh_resp = woo._request("GET", f"/products/{target_id}")
-    if fresh_resp.status_code == 200:
-        fresh = fresh_resp.json()
-        cur_price = fresh.get("regular_price") or "0.00"
-        cur_stock = fresh.get("stock_quantity") or 0
-        cur_cost = woo._extract_meta_value(fresh.get("meta_data", []), Config.WOO_COST_META_KEY) or "0.00"
-        cur_purchase = fresh.get("purchase_price") or "0.00"
-        success("Refreshed WooCommerce values")
-    else:
-        warn(f"Could not refresh WooCommerce data (HTTP {fresh_resp.status_code}), using cached values")
 
     ws_match = None
     try:

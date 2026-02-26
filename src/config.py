@@ -36,11 +36,25 @@ class Config:
     MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "")
     MYSQL_DATABASE = os.getenv("MYSQL_DATABASE", "doctorsstudio")
 
-    # SSH tunnel to remote VM
+    # SSH tunnel to remote VM (lookup table)
     SSH_HOST = os.getenv("SSH_HOST", "34.148.82.199")
     SSH_USER = os.getenv("SSH_USER", "joy")
     SSH_KEY_PATH = os.getenv("SSH_KEY_PATH", str(Path(__file__).resolve().parent.parent / "id_servicemenuserver_new"))
     SSH_LOCAL_PORT = int(os.getenv("SSH_LOCAL_PORT", "33066"))
+
+    # SSH tunnel to WooCommerce server
+    WOO_SSH_HOST = os.getenv("WOO_IP", "")
+    WOO_SSH_USER = os.getenv("WOO_USER_NAME", "root")
+    WOO_SSH_PASSWORD = os.getenv("WOO_PASSWORD", "")
+    WOO_SSH_PORT = int(os.getenv("WOO_IP_PORT", "22"))
+    WOO_SSH_LOCAL_PORT = 33067  # local port for Woo DB tunnel
+
+    # WooCommerce Database (MariaDB via SSH)
+    WOO_DB_NAME = os.getenv("WOO_DB_NAME", "")
+    WOO_DB_USER = os.getenv("WOO_DB_USER", "")
+    WOO_DB_PASSWORD = os.getenv("WOO_DB_PASSWORD", "")
+    WOO_DB_HOST = os.getenv("WOO_DB_HOST", "localhost")
+    WOO_DB_PORT = int(os.getenv("WOO_DB_PORT", "3306"))
 
     # Runtime
     DRY_RUN = os.getenv("DRY_RUN", "false").lower() in ("true", "1", "yes")

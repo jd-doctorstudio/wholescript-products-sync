@@ -272,14 +272,6 @@ def main():
 
     inventories = woo.fetch_inventories(target_id)
 
-    # Pull purchase_price from the selected ATUM inventory (overrides DB _op_cost_price)
-    if inventories:
-        chosen_preview = woo.select_inventories(inventories)
-        if chosen_preview:
-            inv_pp = str(chosen_preview[0].get("meta_data", {}).get("purchase_price") or "").strip()
-            if inv_pp and float(inv_pp) > 0:
-                cur_cost = inv_pp
-
     # ── Background: fetch Wholescripts data ────────────────────────
     ws_match = None
     try:

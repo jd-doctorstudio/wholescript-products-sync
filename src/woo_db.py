@@ -188,13 +188,27 @@ def fetch_product_meta_from_db(product_id: int) -> Optional[Dict[str, str]]:
 
         raw = {row["meta_key"]: row["meta_value"] for row in rows}
 
+        # Also pull canonical purchase_price from wp_atum_product_data
+        atum_purchase_price = None
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT purchase_price FROM wp_atum_product_data WHERE product_id = %s",
+                    (product_id,),
+                )
+                atum_row = cur.fetchone()
+                if atum_row and atum_row["purchase_price"] is not None:
+                    atum_purchase_price = str(atum_row["purchase_price"])
+        except Exception:
+            pass
+
         result = {
             "regular_price": raw.get("_regular_price", "0.00"),
             "stock_quantity": raw.get("_stock", "0"),
             "manage_stock": raw.get("_manage_stock", "no"),
             "stock_status": raw.get("_stock_status", ""),
             "_op_cost_price": raw.get("_op_cost_price", "0.00"),
-            "purchase_price": raw.get("_purchase_price", "0.00"),
+            "purchase_price": atum_purchase_price or raw.get("_purchase_price", "0.00"),
             "_atum_manage_stock": raw.get("_atum_manage_stock", ""),
         }
 

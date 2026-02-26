@@ -223,22 +223,36 @@ class WooClient:
         logger.debug("No inventories for product %d (HTTP %d)", product_id, resp.status_code)
         return []
 
-    def select_inventory(self, inventories: List[dict]) -> Optional[dict]:
-        """Pick the best inventory to update based on priority.
+    def select_inventories(self, inventories: List[dict]) -> List[dict]:
+        """Pick the inventories to update based on priority.
 
-        Priority: Dropship > Jupiter Inventory > Boca Inventory > Main Inventory > any.
+        Priority:
+          1. Dropship alone (if it exists)
+          2. BOTH Jupiter Inventory AND Boca Inventory (if no Dropship)
+          3. Whichever of Jupiter / Boca exists alone
+          4. Main Inventory
+          5. First available inventory as last resort
         """
         if not inventories:
-            return None
+            return []
 
         by_name = {inv.get("name", ""): inv for inv in inventories}
 
-        for name in self._INVENTORY_PRIORITY:
-            if name in by_name:
-                return by_name[name]
+        # 1. Dropship wins outright
+        if "Dropship" in by_name:
+            return [by_name["Dropship"]]
 
-        # Fallback: first available inventory
-        return inventories[0]
+        # 2/3. Collect Jupiter + Boca (could be both or just one)
+        jb = [by_name[n] for n in ("Jupiter Inventory", "Boca Inventory") if n in by_name]
+        if jb:
+            return jb
+
+        # 4. Main Inventory
+        if "Main Inventory" in by_name:
+            return [by_name["Main Inventory"]]
+
+        # 5. Fallback
+        return [inventories[0]]
 
     def update_inventory(
         self, product_id: int, inventory_id: int, stock_quantity: int, purchase_price: Optional[float] = None

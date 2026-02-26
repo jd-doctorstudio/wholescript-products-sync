@@ -146,18 +146,19 @@ def run_sync(dry_run: Optional[bool] = None) -> dict:
                     prev["stock_quantity"], new_vals["stock_quantity"],
                     prev["cost_price"], new_vals["cost_price"],
                 )
-                # Show which ATUM inventory would be updated
+                # Show which ATUM inventories would be updated
                 try:
                     inventories = woo_client.fetch_inventories(woo_id)
-                    chosen = woo_client.select_inventory(inventories)
-                    if chosen:
-                        inv_meta = chosen.get("meta_data", {})
-                        logger.info(
-                            "[DRY RUN]   ATUM inventory '%s' (id=%s) — manage_stock=%s→True, qty=%s→%s",
-                            chosen.get("name"), chosen["id"],
-                            inv_meta.get("manage_stock"), inv_meta.get("stock_quantity"),
-                            new_vals["stock_quantity"],
-                        )
+                    chosen_list = woo_client.select_inventories(inventories)
+                    if chosen_list:
+                        for chosen in chosen_list:
+                            inv_meta = chosen.get("meta_data", {})
+                            logger.info(
+                                "[DRY RUN]   ATUM inventory '%s' (id=%s) — manage_stock=%s→True, qty=%s→%s",
+                                chosen.get("name"), chosen["id"],
+                                inv_meta.get("manage_stock"), inv_meta.get("stock_quantity"),
+                                new_vals["stock_quantity"],
+                            )
                     else:
                         logger.info("[DRY RUN]   No ATUM inventories found for woo_id=%d", woo_id)
                 except Exception as inv_exc:
@@ -189,28 +190,29 @@ def run_sync(dry_run: Optional[bool] = None) -> dict:
                 if 200 <= status_code < 300:
                     logger.info("Updated SKU %s (woo_id=%d) — %d", sku, woo_id, status_code)
 
-                    # Update ATUM Multi-Inventory (Dropship > Jupiter/Boca > Main)
+                    # Update ATUM Multi-Inventory (Dropship > Jupiter+Boca > Main)
                     try:
                         inventories = woo_client.fetch_inventories(woo_id)
-                        chosen = woo_client.select_inventory(inventories)
-                        if chosen:
-                            inv_id = chosen["id"]
-                            inv_name = chosen.get("name", "?")
-                            inv_status, inv_resp = woo_client.update_inventory(
-                                woo_id, int(inv_id),
-                                stock_quantity=int(new_vals["stock_quantity"]),
-                                purchase_price=float(new_vals["cost_price"]),
-                            )
-                            if 200 <= inv_status < 300:
-                                logger.info(
-                                    "  ATUM inventory '%s' (id=%s) updated for woo_id=%d — manage_stock=true, qty=%s",
-                                    inv_name, inv_id, woo_id, new_vals["stock_quantity"],
+                        chosen_list = woo_client.select_inventories(inventories)
+                        if chosen_list:
+                            for chosen in chosen_list:
+                                inv_id = chosen["id"]
+                                inv_name = chosen.get("name", "?")
+                                inv_status, inv_resp = woo_client.update_inventory(
+                                    woo_id, int(inv_id),
+                                    stock_quantity=int(new_vals["stock_quantity"]),
+                                    purchase_price=float(new_vals["cost_price"]),
                                 )
-                            else:
-                                logger.warning(
-                                    "  ATUM inventory '%s' update failed for woo_id=%d: HTTP %d",
-                                    inv_name, woo_id, inv_status,
-                                )
+                                if 200 <= inv_status < 300:
+                                    logger.info(
+                                        "  ATUM inventory '%s' (id=%s) updated for woo_id=%d — manage_stock=true, qty=%s",
+                                        inv_name, inv_id, woo_id, new_vals["stock_quantity"],
+                                    )
+                                else:
+                                    logger.warning(
+                                        "  ATUM inventory '%s' update failed for woo_id=%d: HTTP %d",
+                                        inv_name, woo_id, inv_status,
+                                    )
                         else:
                             logger.debug("  No ATUM inventories found for woo_id=%d — skipping inventory update", woo_id)
                     except Exception as inv_exc:

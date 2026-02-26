@@ -198,18 +198,73 @@ def main():
     else:
         info("No ATUM inventories — will update main WooCommerce stock only")
 
-    # ── Step 5: Enter test values ───────────────────────────────────
-    step(5, "Enter the test values you want to push")
-    info("These simulate what Wholescripts would send.")
-    info("Press Enter to keep the current value unchanged.\n")
+    # ── Step 5: Fetch Wholescripts data & choose values ─────────────
+    step(5, "Looking up product in Wholescripts...")
 
-    new_price = ask("New regular_price", cur_price)
-    new_cost = ask("New cost/purchase_price", cur_cost)
-    new_stock = ask("New stock_quantity", str(cur_stock))
+    ws_match = None
+    try:
+        ws_client = WholescriptsClient()
+        ws_products = ws_client.fetch_product_list()
+        ws_by_sku = ws_client.build_sku_map(ws_products)
 
-    new_price = _fmt_price(new_price)
-    new_cost = _fmt_price(new_cost)
-    new_stock = int(new_stock)
+        # Try matching: exact SKU first, then short-SKU
+        if target_sku in ws_by_sku:
+            ws_match = ws_by_sku[target_sku]
+        else:
+            short = ws_sku_to_short(target_sku) if target_sku else ""
+            # Try to find any WS sku whose short form matches
+            for ws_sku, ws_data in ws_by_sku.items():
+                if ws_sku_to_short(ws_sku) == short and short:
+                    ws_match = ws_data
+                    ws_match["_matched_sku"] = ws_sku
+                    break
+    except Exception as exc:
+        warn(f"Could not fetch Wholescripts data: {exc}")
+
+    if ws_match:
+        ws_price = _fmt_price(ws_match["retail_price"])
+        ws_cost = _fmt_price(ws_match["cost_price"])
+        ws_stock = int(ws_match.get("qty") or 0)
+        ws_name = ws_match.get("product_name", "")
+        matched_sku = ws_match.get("_matched_sku", target_sku)
+
+        success(f"Found in Wholescripts: {BOLD}{ws_name}{RESET}")
+        info(f"Matched SKU: {matched_sku}")
+        print(f"\n    {'Field':<20} {'WooCommerce':<15} {'Wholescripts'}")
+        print(f"    {'─' * 20} {'─' * 15} {'─' * 15}")
+        print(f"    {'regular_price':<20} {cur_price:<15} {ws_price}")
+        print(f"    {'cost_price':<20} {cur_cost:<15} {ws_cost}")
+        print(f"    {'stock_quantity':<20} {str(int(cur_stock or 0)):<15} {ws_stock}")
+
+        print(f"\n    {BOLD}Choose which values to use:{RESET}")
+        print(f"    {BOLD}1{RESET} = Use Wholescripts values (live sync simulation)")
+        print(f"    {BOLD}2{RESET} = Enter values manually")
+        val_choice = ask("Enter 1 or 2", "1")
+
+        if val_choice == "1":
+            new_price = ws_price
+            new_cost = ws_cost
+            new_stock = ws_stock
+            info(f"Using Wholescripts values")
+        else:
+            info("Manual input selected.")
+            info("Press Enter to keep the current WooCommerce value unchanged.\n")
+            new_price = ask("New regular_price", cur_price)
+            new_cost = ask("New cost/purchase_price", cur_cost)
+            new_stock = ask("New stock_quantity", str(cur_stock))
+            new_price = _fmt_price(new_price)
+            new_cost = _fmt_price(new_cost)
+            new_stock = int(new_stock)
+    else:
+        warn(f"Product SKU '{target_sku}' not found in Wholescripts.")
+        info("Falling back to manual input.")
+        info("Press Enter to keep the current WooCommerce value unchanged.\n")
+        new_price = ask("New regular_price", cur_price)
+        new_cost = ask("New cost/purchase_price", cur_cost)
+        new_stock = ask("New stock_quantity", str(cur_stock))
+        new_price = _fmt_price(new_price)
+        new_cost = _fmt_price(new_cost)
+        new_stock = int(new_stock)
 
     # ── Step 6: Confirm ─────────────────────────────────────────────
     step(6, "Review changes before applying")

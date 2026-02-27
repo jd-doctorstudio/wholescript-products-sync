@@ -254,6 +254,35 @@ class WooClient:
         # 5. Fallback
         return [inventories[0]]
 
+    def get_atum_stock(self, inventories: List[dict]) -> Optional[int]:
+        """Get the stock quantity from the prioritized ATUM inventory location.
+
+        For READING stock, pick ONE location in priority order:
+          Dropship > Boca Inventory > Jupiter Inventory > Main Inventory > first available
+        Returns None if no inventories or no stock data found.
+        """
+        if not inventories:
+            return None
+
+        by_name = {inv.get("name", ""): inv for inv in inventories}
+        priority = ["Dropship", "Boca Inventory", "Jupiter Inventory", "Main Inventory"]
+
+        for name in priority:
+            if name in by_name:
+                meta = by_name[name].get("meta_data", {})
+                qty = meta.get("stock_quantity")
+                if qty is not None:
+                    return int(float(qty))
+
+        # Fallback: first inventory with a stock value
+        for inv in inventories:
+            meta = inv.get("meta_data", {})
+            qty = meta.get("stock_quantity")
+            if qty is not None:
+                return int(float(qty))
+
+        return None
+
     def update_inventory(
         self, product_id: int, inventory_id: int, stock_quantity: int, purchase_price: Optional[float] = None
     ) -> Tuple[int, dict]:

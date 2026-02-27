@@ -56,6 +56,36 @@ class Config:
     WOO_DB_HOST = os.getenv("WOO_DB_HOST", "localhost")
     WOO_DB_PORT = int(os.getenv("WOO_DB_PORT", "3306"))
 
+    # Google Sheets
+    GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "")
+    GOOGLE_SERVICE_ACCOUNT_FILE = os.getenv(
+        "GOOGLE_SERVICE_ACCOUNT_FILE",
+        str(Path(__file__).resolve().parent.parent / "doctors-studio-backend-e13229a469d2.json"),
+    )
+
+    # Mailgun
+    MAILGUN_API_KEY = os.getenv("MAILGUN_API_KEY", "")
+    MAILGUN_DOMAIN = os.getenv("MAILGUN_DOMAIN", "")
+    MAILGUN_API_URL = os.getenv("MAILGUN_API_URL", "https://api.mailgun.net/v3")
+    MAILGUN_FROM = os.getenv("MAILGUN_FROM", "Wholescripts Sync <sync@doctorsstudio.com>")
+
+    # SMTP fallback
+    SMTP_HOST = os.getenv("EMAIL_HOST", "smtp.gmail.com")
+    SMTP_PORT = int(os.getenv("EMAIL_PORT", "587"))
+    SMTP_USE_TLS = os.getenv("EMAIL_USE_TLS", "true").lower() in ("true", "1", "yes")
+    SMTP_USER = os.getenv("EMAIL_HOST_USER", "")
+    SMTP_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+    SMTP_FROM = os.getenv("DEFAULT_FROM_EMAIL", "Doctors Studio <Support@doctorsstudio.com>")
+
+    # Email recipients (comma-separated)
+    EMAIL_RECIPIENTS = [
+        e.strip() for e in os.getenv("EMAIL_RECIPIENTS", "joy@doctorsstudio.com").split(",") if e.strip()
+    ]
+
+    # Feature toggles
+    SHEET_ENABLED = os.getenv("SHEET_ENABLED", "ON").upper() in ("ON", "TRUE", "1", "YES")
+    EMAIL_ENABLED = os.getenv("EMAIL_ENABLED", "ON").upper() in ("ON", "TRUE", "1", "YES")
+
     # Runtime
     DRY_RUN = os.getenv("DRY_RUN", "false").lower() in ("true", "1", "yes")
 

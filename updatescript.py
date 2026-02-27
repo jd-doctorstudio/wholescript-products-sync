@@ -4,6 +4,7 @@
 Usage:
     python3 updatescript.py              # Normal run
     python3 updatescript.py --dry-run    # Preview without updating Woo
+    python3 updatescript.py --clear-sheet # Clear the Google Sheet (testing)
 """
 import os
 import sys
@@ -43,10 +44,31 @@ def acquire_lock():
     logger.info("Lock acquired (PID %d)", os.getpid())
 
 
+def clear_sheet():
+    """Clear the entire Google Sheet (values, formatting, conditional rules, filters)."""
+    from src.sheets import _get_client, _full_clear
+
+    sheet_id = Config.GOOGLE_SHEET_ID
+    if not sheet_id:
+        logger.error("GOOGLE_SHEET_ID not set — nothing to clear")
+        sys.exit(1)
+
+    gc = _get_client()
+    sh = gc.open_by_key(sheet_id)
+    ws = sh.sheet1
+    _full_clear(sh, ws)
+    logger.info("Sheet cleared: %s", sheet_id)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Wholescripts → WooCommerce sync")
     parser.add_argument("--dry-run", action="store_true", help="Preview changes without updating WooCommerce")
+    parser.add_argument("--clear-sheet", action="store_true", help="Clear the Google Sheet (testing)")
     args = parser.parse_args()
+
+    if args.clear_sheet:
+        clear_sheet()
+        return
 
     try:
         Config.validate()

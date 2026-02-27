@@ -8,6 +8,9 @@ from src.wholescripts_client import WholescriptsClient
 from src.woo_client import WooClient
 from src.mapper import compute_updates
 from src.lookup import fetch_sku_lookup
+from src.sheets import publish_sync_results
+from src.ws_snapshot import load_snapshot, save_snapshot
+from src.email_sender import send_sync_email
 
 logger = setup_logger("wholescripts_sync.sync")
 
@@ -63,6 +66,11 @@ def run_sync(dry_run: Optional[bool] = None) -> dict:
         ws_by_sku = ws_client.build_sku_map(ws_products)
         summary["total_ws_products"] = len(ws_products)
 
+        # Load previous WS snapshot (for WS Prev columns in sheet)
+        ws_prev_snapshot = load_snapshot()
+        # Save current WS data as snapshot for next run
+        save_snapshot(ws_by_sku)
+
         # 3. Fetch SKU lookup table (SSH tunnel to remote MySQL)
         try:
             sku_lookup = fetch_sku_lookup()
@@ -106,11 +114,34 @@ def run_sync(dry_run: Optional[bool] = None) -> dict:
             else:
                 logger.info("All lookup table IDs found in parent products")
 
+        # 4c. Enrich woo_by_id with ATUM inventory stock (the real stock source)
+        #     Main WooCommerce stock_quantity is often 0 for ATUM-managed products.
+        #     Read from prioritized ATUM location: Dropship > Boca > Jupiter > Main
+        matched_woo_ids = set(sku_lookup.values()) & set(woo_by_id.keys())
+        if matched_woo_ids:
+            logger.info("Fetching ATUM inventory stock for %d matched products...", len(matched_woo_ids))
+            atum_enriched = 0
+            for woo_id in matched_woo_ids:
+                try:
+                    inventories = woo_client.fetch_inventories(woo_id)
+                    if inventories:
+                        atum_qty = woo_client.get_atum_stock(inventories)
+                        if atum_qty is not None:
+                            woo_by_id[woo_id]["stock_quantity"] = atum_qty
+                            atum_enriched += 1
+                except Exception as exc:
+                    logger.debug("Could not fetch ATUM stock for woo_id=%d: %s", woo_id, exc)
+            logger.info("Enriched %d/%d products with ATUM inventory stock", atum_enriched, len(matched_woo_ids))
+
         # 5. Compute diffs (lookup table as primary, direct SKU as fallback)
         updates, skipped, missing_in_woo = compute_updates(ws_by_sku, woo_by_id, sku_lookup, woo_by_sku)
         summary["matched"] = len(updates) + len(skipped)
         summary["skipped"] = len(skipped)
         summary["missing_in_woo"] = len(missing_in_woo)
+
+        # Track items for Google Sheets report
+        succeeded_items = []
+        failed_items = []
 
         # Log skipped items
         for item in skipped:
@@ -233,6 +264,7 @@ def run_sync(dry_run: Optional[bool] = None) -> dict:
                         new_cost_price=float(new_vals["cost_price"]),
                     )
                     summary["updated"] += 1
+                    succeeded_items.append(item)
                 else:
                     error_msg = f"HTTP {status_code}"
                     logger.error("Failed to update SKU %s (woo_id=%d): %s", sku, woo_id, error_msg)
@@ -252,6 +284,7 @@ def run_sync(dry_run: Optional[bool] = None) -> dict:
                         error=error_msg,
                     )
                     summary["failed"] += 1
+                    failed_items.append(item)
 
             except Exception as exc:
                 logger.error("Exception updating SKU %s (woo_id=%d): %s", sku, woo_id, exc)
@@ -270,6 +303,7 @@ def run_sync(dry_run: Optional[bool] = None) -> dict:
                     error=str(exc),
                 )
                 summary["failed"] += 1
+                failed_items.append(item)
 
         # 6. Finalize
         notes = "DRY RUN" if dry_run else None
@@ -296,6 +330,40 @@ def run_sync(dry_run: Optional[bool] = None) -> dict:
             summary["missing_in_woo"],
             summary["failed"],
         )
+
+        # 7. Publish to Google Sheets
+        if Config.SHEET_ENABLED:
+            try:
+                # For dry-run, all updates are "would-update" items
+                sheet_updates = updates if dry_run else succeeded_items
+                publish_sync_results(
+                    updates=sheet_updates,
+                    skipped=skipped,
+                    missing_in_woo=missing_in_woo,
+                    failed=failed_items,
+                    summary=summary,
+                    ws_by_sku=ws_by_sku,
+                    woo_by_id=woo_by_id,
+                    ws_prev_snapshot=ws_prev_snapshot,
+                    dry_run=dry_run,
+                )
+            except Exception as sheet_exc:
+                logger.error("Google Sheets update failed: %s", sheet_exc)
+        else:
+            logger.info("Google Sheets disabled (SHEET_ENABLED=OFF)")
+
+        # 8. Send email notification
+        if Config.EMAIL_ENABLED:
+            try:
+                send_sync_email(
+                    summary=summary,
+                    dry_run=dry_run,
+                    sheet_id=Config.GOOGLE_SHEET_ID,
+                )
+            except Exception as email_exc:
+                logger.error("Email notification failed: %s", email_exc)
+        else:
+            logger.info("Email notifications disabled (EMAIL_ENABLED=OFF)")
 
     except Exception:
         logger.exception("Sync run %s failed with exception", run_id)
